@@ -1,3 +1,4 @@
+import sys
 import logging
 import asyncio
 import json
@@ -13,11 +14,11 @@ API_ID = config["api_id"]
 API_HASH = config["api_hash"]
 PHONE_NUMBER = config["phone_number"]
 
-CHANNEL_ID = config["channel_id"]
+CHANNEL_ID = None
 
 
 async def write_out(QUEUE):
-    with open("out.dat", "w", encoding="utf-8") as fout:
+    with open(f"chat_{CHANNEL_ID}.dat", "w", encoding="utf-8") as fout:
         while True:
             elem = await QUEUE.get()
             if elem is None:
@@ -38,20 +39,27 @@ async def main(QUEUE):
     async with client:
         last_id = 0
         total = 0
-        while last_id is not None:
+        fetched = 0
+        while fetched < 7000:
             batch = await client.api.get_chat_history(chat_id=CHANNEL_ID, from_message_id=last_id,
-                                                      offset=0, limit=10, only_local=False)
+                                                      offset=0, limit=100, only_local=False,
+                                                      request_timeout=1000)
             m = None
-            logging.info("%s / %s", len(batch.messages), total)
+            logging.info("%s : %s / %s", len(batch.messages), fetched, total)
             for m in batch.messages:
                 if not isinstance(m.content, api.types.MessageText):
                     continue
+                fetched += 1
                 await QUEUE.put({
                     "id": m.id,
                     "text": str(m.content.text.text)
                 })
             total += len(batch.messages)
-            last_id = m.id if m is not None else None
+            if m is None:
+                await asyncio.sleep(5)
+                continue
+            last_id = m.id
+            await asyncio.sleep(0.3)
         logging.info("push None")
         await QUEUE.put(None)
     logging.info("DONE reading")
@@ -63,5 +71,6 @@ async def themain():
 
 
 if __name__ == '__main__':
+    CHANNEL_ID = int(sys.argv[1])
     logging.basicConfig(level=logging.INFO)
     asyncio.run(themain())
